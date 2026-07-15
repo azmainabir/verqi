@@ -1,0 +1,38 @@
+# Verqi — Prism theme
+# Developed by Azmain Tahmid Abir
+# LinkedIn: https://www.linkedin.com/in/azmain-abir
+# GitHub:   https://github.com/azmainabir
+
+[theme]
+base = "dark"
+
+# Violet accent — buttons, focus states, spinners
+primaryColor = "#8F85E8"
+
+# Deep violet-black canvas
+backgroundColor = "#0D0B14"
+
+# Panels, chat bubbles, inputs
+secondaryBackgroundColor = "#171327"
+
+textColor = "#E9E7F2"
+linkColor = "#AFA9EC"
+borderColor = "#2A2440"
+
+baseRadius = "large"
+buttonRadius = "full"
+showWidgetBorder = true
+
+# Re-tint info boxes from blue to violet
+blueBackgroundColor = "#1B1533"
+blueColor = "#8F85E8"
+blueTextColor = "#CECBF6"
+
+font = "sans serif"
+
+[theme.sidebar]
+backgroundColor = "#110E1C"
+borderColor = "#2A2440"
+
+[server]
+maxUploadSize = 25

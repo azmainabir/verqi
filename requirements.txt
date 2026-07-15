@@ -1,0 +1,26 @@
+# Verqi — Chat with your documents (RAG)
+# Developed by Azmain Tahmid Abir
+# LinkedIn: https://www.linkedin.com/in/azmain-abir
+# GitHub:   https://github.com/azmainabir
+
+# --- Web app ---
+streamlit==1.59.2
+
+# --- RAG orchestration ---
+langchain-core==1.4.9
+langchain-community==0.4.2
+langchain-text-splitters==1.1.2
+
+# --- Google Gemini (LLM + embeddings) ---
+langchain-google-genai==4.2.7
+google-genai==2.11.0
+
+# --- Vector store ---
+faiss-cpu==1.14.3
+
+# --- Document parsing ---
+pypdf==6.14.2
+docx2txt==0.9
+
+# --- Environment variables ---
+python-dotenv==1.2.2

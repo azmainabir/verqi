@@ -1,0 +1,28 @@
+# Verqi — .gitignore
+# Developed by Azmain Tahmid Abir
+
+# Secrets — never commit your API keys
+.env
+.streamlit/secrets.toml
+
+# Virtual environment
+venv/
+env/
+.venv/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyc
+
+# FAISS index / uploaded files (generated at runtime)
+*.faiss
+*.pkl
+/uploads/
+/temp/
+
+# OS / editor junk
+.DS_Store
+Thumbs.db
+.vscode/
+*.log
