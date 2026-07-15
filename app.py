@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 import streamlit as st
 
 from document_processor import create_vector_store
-from rag_engine import answer_stream, get_sources
+from rag_engine import prepare_answer, friendly_error
 from study_tools import (
     generate_summary, suggest_questions, generate_quiz,
     generate_flashcards, extract_key_concepts,
@@ -42,12 +42,19 @@ st.set_page_config(
     layout="wide",
 )
 
+
+def show_error(context: str, error: Exception) -> None:
+    """Log the full error for the developer, show a friendly message to the user."""
+    print(f"[Verqi] {context}: {error}")
+    st.error(friendly_error(error))
+
+
 # --- Session state ---
 for key, default in [
     ("vector_store", None), ("messages", []), ("processed_files", []),
     ("doc_text", ""), ("summary", None), ("questions", None),
     ("quiz", None), ("flashcards", None), ("concepts", None),
-    ("math_solution", None),
+    ("math_solution", None), ("last_math_mode", None),
 ]:
     if key not in st.session_state:
         st.session_state[key] = default
@@ -96,16 +103,18 @@ with st.sidebar:
         else:
             with st.spinner("Reading and embedding your documents..."):
                 try:
-                    store, docs = create_vector_store(uploaded, API_KEY)
+                    store, docs, raw_text = create_vector_store(uploaded, API_KEY)
                     st.session_state.vector_store = store
-                    st.session_state.doc_text = "\n\n".join(d.page_content for d in docs)
+                    st.session_state.doc_text = raw_text
                     st.session_state.processed_files = [f.name for f in uploaded]
                     st.session_state.messages = []
                     for k in ("summary", "questions", "quiz", "flashcards", "concepts"):
                         st.session_state[k] = None
-                    st.success(f"Processed {len(uploaded)} file(s) into {len(docs)} chunks.")
+                    st.success(f"Processed {len(uploaded)} file(s) into {len(docs)} sections.")
+                except ValueError as e:
+                    st.warning(str(e))
                 except Exception as e:
-                    st.error(f"Could not process documents: {e}")
+                    show_error("processing documents", e)
 
     if st.session_state.processed_files:
         st.markdown("**Ready to chat with:**")
@@ -122,6 +131,14 @@ with st.sidebar:
         "[GitHub](https://github.com/azmainabir)"
     )
 
+
+def render_sources(sources):
+    with st.expander("Sources"):
+        for i, src in enumerate(sources, 1):
+            st.markdown(f"**{i}. {src['source']}**")
+            st.caption(src["preview"])
+
+
 # --- Tabs ---
 tab_chat, tab_study, tab_math = st.tabs(["💬 Chat", "📖 Study Tools", "🧮 Math Solver"])
 
@@ -134,10 +151,7 @@ with tab_chat:
             with st.chat_message(msg["role"]):
                 st.markdown(msg["content"])
                 if msg["role"] == "assistant" and msg.get("sources"):
-                    with st.expander("Sources"):
-                        for i, src in enumerate(msg["sources"], 1):
-                            st.markdown(f"**{i}. {src['source']}**")
-                            st.caption(src["preview"])
+                    render_sources(msg["sources"])
 
         if prompt := st.chat_input("Ask a question about your documents..."):
             st.session_state.messages.append({"role": "user", "content": prompt})
@@ -146,28 +160,25 @@ with tab_chat:
 
             with st.chat_message("assistant"):
                 try:
-                    stream = answer_stream(
+                    # one retrieval powers both the answer and its citations
+                    source_docs, stream = prepare_answer(
                         st.session_state.vector_store, prompt, API_KEY,
                         st.session_state.messages[:-1],
                     )
                     full_answer = st.write_stream(stream)
 
-                    source_docs = get_sources(st.session_state.vector_store, prompt)
                     sources = [
                         {"source": d.metadata.get("source", "unknown"),
                          "preview": d.page_content[:200] + "..."}
                         for d in source_docs
                     ]
-                    with st.expander("Sources"):
-                        for i, src in enumerate(sources, 1):
-                            st.markdown(f"**{i}. {src['source']}**")
-                            st.caption(src["preview"])
+                    render_sources(sources)
 
                     st.session_state.messages.append(
                         {"role": "assistant", "content": full_answer, "sources": sources}
                     )
                 except Exception as e:
-                    st.error(f"Something went wrong: {e}")
+                    show_error("answering question", e)
 
 # ===== STUDY TOOLS TAB =====
 with tab_study:
@@ -179,40 +190,20 @@ with tab_study:
         text = st.session_state.doc_text
         c1, c2, c3, c4, c5 = st.columns(5)
 
-        if c1.button("Summary", use_container_width=True):
-            with st.spinner("Summarizing..."):
-                try:
-                    st.session_state.summary = generate_summary(text, API_KEY)
-                except Exception as e:
-                    st.error(f"Could not generate summary: {e}")
-
-        if c2.button("Questions", use_container_width=True):
-            with st.spinner("Generating questions..."):
-                try:
-                    st.session_state.questions = suggest_questions(text, API_KEY)
-                except Exception as e:
-                    st.error(f"Could not generate questions: {e}")
-
-        if c3.button("Quiz", use_container_width=True):
-            with st.spinner("Building a quiz..."):
-                try:
-                    st.session_state.quiz = generate_quiz(text, API_KEY)
-                except Exception as e:
-                    st.error(f"Could not generate quiz: {e}")
-
-        if c4.button("Flashcards", use_container_width=True):
-            with st.spinner("Making flashcards..."):
-                try:
-                    st.session_state.flashcards = generate_flashcards(text, API_KEY)
-                except Exception as e:
-                    st.error(f"Could not generate flashcards: {e}")
-
-        if c5.button("Key Points", use_container_width=True):
-            with st.spinner("Extracting key concepts..."):
-                try:
-                    st.session_state.concepts = extract_key_concepts(text, API_KEY)
-                except Exception as e:
-                    st.error(f"Could not extract concepts: {e}")
+        tools = [
+            (c1, "Summary", "summary", generate_summary, "Summarizing..."),
+            (c2, "Questions", "questions", suggest_questions, "Generating questions..."),
+            (c3, "Quiz", "quiz", generate_quiz, "Building a quiz..."),
+            (c4, "Flashcards", "flashcards", generate_flashcards, "Making flashcards..."),
+            (c5, "Key Points", "concepts", extract_key_concepts, "Extracting key concepts..."),
+        ]
+        for col, label, state_key, fn, spinner_text in tools:
+            if col.button(label, use_container_width=True):
+                with st.spinner(spinner_text):
+                    try:
+                        st.session_state[state_key] = fn(text, API_KEY)
+                    except Exception as e:
+                        show_error(f"generating {label.lower()}", e)
 
         if st.session_state.summary:
             st.markdown("### Summary")
@@ -253,6 +244,11 @@ with tab_math:
 
     mode = st.radio("Input type", ["Type it", "Upload image"], horizontal=True)
 
+    # clear a stale solution when switching input modes
+    if st.session_state.last_math_mode != mode:
+        st.session_state.math_solution = None
+        st.session_state.last_math_mode = mode
+
     if mode == "Type it":
         problem = st.text_area("Enter the math problem", height=120,
                                placeholder="e.g. Solve for x:  3x + 7 = 22")
@@ -262,7 +258,7 @@ with tab_math:
                     try:
                         st.session_state.math_solution = solve_text(problem, API_KEY)
                     except Exception as e:
-                        st.error(f"Could not solve: {e}")
+                        show_error("solving math (text)", e)
             else:
                 st.warning("Please enter a math problem first.")
     else:
@@ -279,7 +275,7 @@ with tab_math:
                             img.getvalue(), img.type, API_KEY, note
                         )
                     except Exception as e:
-                        st.error(f"Could not solve: {e}")
+                        show_error("solving math (image)", e)
             else:
                 st.warning("Please upload an image first.")
 

@@ -1,5 +1,5 @@
 # study_tools.py
-# Verqi — Chat with your documents (RAG)
+# Verqi — Your AI-powered study assistant
 # Developed by Azmain Tahmid Abir
 # LinkedIn: https://www.linkedin.com/in/azmain-abir
 # GitHub:   https://github.com/azmainabir
@@ -58,7 +58,7 @@ def _parse_json(raw: str):
 def generate_summary(text: str, api_key: str) -> str:
     llm = get_llm(api_key, streaming=False)
     messages = [
-        ("system", "You are a study assistant that writes clear, concise summaries."),
+        ("system", "You are Verqi, a study assistant that writes clear, concise summaries."),
         ("user", "Write a concise summary (4-6 sentences) of the following document:\n\n"
                  + _truncate(text)),
     ]
@@ -66,7 +66,7 @@ def generate_summary(text: str, api_key: str) -> str:
 
 
 def suggest_questions(text: str, api_key: str, n: int = 4) -> List[str]:
-    llm = get_llm(api_key, streaming=False)
+    llm = get_llm(api_key, streaming=False, json_mode=True)
     messages = [
         ("system", "You generate study questions. Respond ONLY with a JSON array of strings."),
         ("user", f"Based on this document, generate {n} insightful questions a student might ask "
@@ -78,7 +78,7 @@ def suggest_questions(text: str, api_key: str, n: int = 4) -> List[str]:
 
 
 def generate_quiz(text: str, api_key: str, n: int = 5) -> List[Dict]:
-    llm = get_llm(api_key, streaming=False)
+    llm = get_llm(api_key, streaming=False, json_mode=True)
     schema = ('[{"question": "...", "options": ["A", "B", "C", "D"], '
               '"answer": "the exact correct option text", "explanation": "..."}]')
     messages = [
@@ -107,7 +107,7 @@ def generate_quiz(text: str, api_key: str, n: int = 5) -> List[Dict]:
 
 
 def generate_flashcards(text: str, api_key: str, n: int = 8) -> List[Dict]:
-    llm = get_llm(api_key, streaming=False)
+    llm = get_llm(api_key, streaming=False, json_mode=True)
     schema = '[{"term": "...", "definition": "..."}]'
     messages = [
         ("system", "You create study flashcards. Respond ONLY with valid JSON."),
@@ -125,7 +125,7 @@ def generate_flashcards(text: str, api_key: str, n: int = 8) -> List[Dict]:
 
 
 def extract_key_concepts(text: str, api_key: str, n: int = 6) -> List[str]:
-    llm = get_llm(api_key, streaming=False)
+    llm = get_llm(api_key, streaming=False, json_mode=True)
     messages = [
         ("system", "You extract key concepts. Respond ONLY with a JSON array of short strings."),
         ("user", f"List the {n} most important key concepts or points from this document. "

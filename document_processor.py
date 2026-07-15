@@ -1,5 +1,5 @@
 # document_processor.py
-# Verqi — Chat with your documents (RAG)
+# Verqi — Your AI-powered study assistant
 # Developed by Azmain Tahmid Abir
 # LinkedIn: https://www.linkedin.com/in/azmain-abir
 # GitHub:   https://github.com/azmainabir
@@ -20,14 +20,14 @@ from langchain_google_genai import GoogleGenerativeAIEmbeddings
 EMBEDDING_MODEL = "gemini-embedding-001"
 CHUNK_SIZE = 1000
 CHUNK_OVERLAP = 150
+MAX_CHUNKS = 400          # guards the shared API quota against oversized uploads
 SUPPORTED_TYPES = (".pdf", ".docx", ".txt")
 
 
 # --- Text extraction per file type ---
 def _extract_pdf(data: bytes) -> str:
     reader = PdfReader(io.BytesIO(data))
-    parts = [(page.extract_text() or "") for page in reader.pages]
-    return "\n".join(parts)
+    return "\n".join((page.extract_text() or "") for page in reader.pages)
 
 
 def _extract_docx(data: bytes) -> str:
@@ -58,11 +58,11 @@ def extract_text(filename: str, data: bytes) -> str:
 
 
 # --- Chunking ---
-def build_documents(files) -> List[Document]:
+def build_documents(files) -> Tuple[List[Document], str]:
     """
-    Turn uploaded files into a list of chunked LangChain Documents.
-    `files` is a list of Streamlit UploadedFile objects (each has .name and .getvalue()).
-    Each chunk carries its source filename so answers can be cited.
+    Turn uploaded files into (chunked Documents, clean raw text).
+    The raw text is kept separately so study tools don't receive the
+    duplicated overlap regions that chunking deliberately creates.
     """
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=CHUNK_SIZE,
@@ -70,29 +70,34 @@ def build_documents(files) -> List[Document]:
         separators=["\n\n", "\n", ". ", " ", ""],
     )
     docs: List[Document] = []
+    raw_parts: List[str] = []
     for f in files:
         raw = extract_text(f.name, f.getvalue())
         if not raw.strip():
             continue
+        raw_parts.append(raw)
         for i, chunk in enumerate(splitter.split_text(raw)):
             docs.append(
                 Document(page_content=chunk, metadata={"source": f.name, "chunk": i})
             )
-    return docs
+    return docs, "\n\n".join(raw_parts)
 
 
 # --- Vector store ---
-def create_vector_store(files, api_key: str) -> Tuple[FAISS, List[Document]]:
-    """
-    Extract, chunk, embed the uploaded files and return a FAISS store plus the raw chunks.
-    Raises ValueError if no readable text is found.
-    """
-    docs = build_documents(files)
+def create_vector_store(files, api_key: str):
+    """Extract, chunk, and embed uploads. Returns (store, chunks, raw_text)."""
+    docs, raw_text = build_documents(files)
     if not docs:
-        raise ValueError("No readable text found in the uploaded file(s).")
+        raise ValueError("No readable text found in the uploaded file(s). "
+                         "If this is a scanned PDF, try a text-based file instead.")
+    if len(docs) > MAX_CHUNKS:
+        raise ValueError(
+            f"These documents are too large ({len(docs)} sections). "
+            f"Please upload something smaller — up to about {MAX_CHUNKS} sections."
+        )
     embeddings = GoogleGenerativeAIEmbeddings(
         model=EMBEDDING_MODEL,
         google_api_key=api_key,
     )
     store = FAISS.from_documents(docs, embeddings)
-    return store, docs
+    return store, docs, raw_text
