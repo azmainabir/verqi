@@ -79,6 +79,7 @@ def get_llm(api_key: str, streaming: bool = True,
     )
     if json_mode:
         kwargs["response_mime_type"] = "application/json"
+        kwargs["max_output_tokens"] = 8192   # headroom for large quizzes
     return ChatGoogleGenerativeAI(**kwargs)
 
 

@@ -12,8 +12,8 @@ import streamlit as st
 from document_processor import create_vector_store
 from rag_engine import prepare_answer, friendly_error
 from study_tools import (
-    generate_summary, suggest_questions, generate_quiz,
-    generate_flashcards, extract_key_concepts,
+    generate_summary, generate_questions, generate_quiz,
+    generate_flashcards, extract_key_concepts, QUESTION_STYLES,
 )
 from math_solver import solve_text, solve_image
 
@@ -188,14 +188,34 @@ with tab_study:
     else:
         st.caption("Generate study aids from your uploaded documents.")
         text = st.session_state.doc_text
+
+        sc1, sc2 = st.columns([2, 1])
+        with sc1:
+            count = st.slider(
+                "How many items to generate", min_value=5, max_value=25, value=10, step=5,
+                help="Applies to Questions, Quiz, Flashcards and Key Points. "
+                     "Larger sets take a little longer.",
+            )
+        with sc2:
+            q_style = st.selectbox(
+                "Question type", list(QUESTION_STYLES.keys()), index=1,
+                help="Controls the depth and mark value of generated questions.",
+            )
+
         c1, c2, c3, c4, c5 = st.columns(5)
 
         tools = [
-            (c1, "Summary", "summary", generate_summary, "Summarizing..."),
-            (c2, "Questions", "questions", suggest_questions, "Generating questions..."),
-            (c3, "Quiz", "quiz", generate_quiz, "Building a quiz..."),
-            (c4, "Flashcards", "flashcards", generate_flashcards, "Making flashcards..."),
-            (c5, "Key Points", "concepts", extract_key_concepts, "Extracting key concepts..."),
+            (c1, "Summary", "summary",
+             lambda t, k: generate_summary(t, k), "Summarizing..."),
+            (c2, "Questions", "questions",
+             lambda t, k: generate_questions(t, k, n=count, style=q_style),
+             "Writing questions and answers..."),
+            (c3, "Quiz", "quiz",
+             lambda t, k: generate_quiz(t, k, n=count), "Building a quiz..."),
+            (c4, "Flashcards", "flashcards",
+             lambda t, k: generate_flashcards(t, k, n=count), "Making flashcards..."),
+            (c5, "Key Points", "concepts",
+             lambda t, k: extract_key_concepts(t, k, n=count), "Extracting key concepts..."),
         ]
         for col, label, state_key, fn, spinner_text in tools:
             if col.button(label, use_container_width=True):
@@ -215,9 +235,14 @@ with tab_study:
                 st.markdown(f"- {c}")
 
         if st.session_state.questions:
-            st.markdown("### Suggested Questions")
-            for q in st.session_state.questions:
-                st.markdown(f"- {q}")
+            st.markdown("### Questions & Answers")
+            for i, item in enumerate(st.session_state.questions, 1):
+                st.markdown(f"**Q{i}. {item['question']}**  \n"
+                            f"<span style='color:#9A93B8;font-size:13px;'>"
+                            f"{item['marks']} mark{'s' if item['marks'] != 1 else ''}</span>",
+                            unsafe_allow_html=True)
+                with st.expander("Show answer"):
+                    st.write(item["answer"])
 
         if st.session_state.quiz:
             st.markdown("### Quiz")

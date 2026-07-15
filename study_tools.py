@@ -1,5 +1,5 @@
 # study_tools.py
-# Verqi — Your AI-powered study assistant
+# Verqi — Chat with your documents (RAG)
 # Developed by Azmain Tahmid Abir
 # LinkedIn: https://www.linkedin.com/in/azmain-abir
 # GitHub:   https://github.com/azmainabir
@@ -11,7 +11,7 @@ from typing import List, Dict
 
 from rag_engine import get_llm, _extract_text, _is_transient, MAX_RETRIES, BASE_DELAY
 
-MAX_CHARS = 24000  # cap the document text sent to the model (controls latency/tokens)
+MAX_CHARS = 100000  # how much document text the study tools read
 
 
 def _truncate(text: str) -> str:
@@ -32,7 +32,9 @@ def _invoke_with_retry(llm, messages) -> str:
 
 def _parse_json(raw: str):
     """Robustly extract a JSON array/object from a possibly-messy LLM response."""
+    # remove markdown code fences
     cleaned = re.sub(r"```(?:json)?", "", raw).strip("` \n")
+    # remove trailing commas before closing brackets (common LLM slip)
     cleaned_fixed = re.sub(r",(\s*[\]}])", r"\1", cleaned)
 
     for candidate in (cleaned, cleaned_fixed):
@@ -41,11 +43,13 @@ def _parse_json(raw: str):
         except Exception:
             pass
 
+    # fall back: grab the outermost [...] or {...}
     for open_c, close_c in (("[", "]"), ("{", "}")):
         start = cleaned.find(open_c)
         end = cleaned.rfind(close_c)
         if start != -1 and end != -1 and end > start:
-            snippet = re.sub(r",(\s*[\]}])", r"\1", cleaned[start:end + 1])
+            snippet = cleaned[start:end + 1]
+            snippet = re.sub(r",(\s*[\]}])", r"\1", snippet)
             try:
                 return json.loads(snippet)
             except Exception:
@@ -58,23 +62,68 @@ def _parse_json(raw: str):
 def generate_summary(text: str, api_key: str) -> str:
     llm = get_llm(api_key, streaming=False)
     messages = [
-        ("system", "You are Verqi, a study assistant that writes clear, concise summaries."),
+        ("system", "You are a study assistant that writes clear, concise summaries."),
         ("user", "Write a concise summary (4-6 sentences) of the following document:\n\n"
                  + _truncate(text)),
     ]
     return _invoke_with_retry(llm, messages)
 
 
-def suggest_questions(text: str, api_key: str, n: int = 4) -> List[str]:
+QUESTION_STYLES = {
+    "Short (1 mark)": (
+        "short factual questions, each answerable in one or two sentences",
+        1,
+    ),
+    "Medium (5 marks)": (
+        "questions requiring a structured paragraph answer covering 3-5 key points",
+        5,
+    ),
+    "Long (8 marks)": (
+        "broad essay-style questions requiring a detailed multi-paragraph answer "
+        "with explanation and examples",
+        8,
+    ),
+    "Mixed": (
+        "a mix of short (1 mark), medium (5 marks) and long (8 marks) questions",
+        0,
+    ),
+}
+
+
+def generate_questions(text: str, api_key: str, n: int = 5,
+                       style: str = "Medium (5 marks)") -> List[Dict]:
+    """Generate exam-style questions with model answers and mark values."""
+    guidance, marks = QUESTION_STYLES.get(style, QUESTION_STYLES["Medium (5 marks)"])
     llm = get_llm(api_key, streaming=False, json_mode=True)
+    schema = '[{"question": "...", "answer": "...", "marks": 5}]'
+    if marks:
+        mark_rule = f'Set "marks" to {marks} for every question.'
+    else:
+        mark_rule = 'Set "marks" to 1, 5 or 8 to match each question\'s depth.'
     messages = [
-        ("system", "You generate study questions. Respond ONLY with a JSON array of strings."),
-        ("user", f"Based on this document, generate {n} insightful questions a student might ask "
-                 f"to study it. Respond as a JSON array of {n} question strings.\n\n"
-                 + _truncate(text)),
+        ("system", "You are Verqi, an exam question setter. Respond ONLY with valid JSON."),
+        ("user",
+         f"From the document below, write {n} exam questions with model answers.\n"
+         f"Style: {guidance}.\n"
+         f"{mark_rule}\n"
+         f"Answers must be based only on the document, and their length must match "
+         f"the marks (1 mark = brief, 5 marks = a solid paragraph, 8 marks = detailed).\n"
+         f"Respond as a JSON array shaped like: {schema}\n\n" + _truncate(text)),
     ]
     data = _parse_json(_invoke_with_retry(llm, messages))
-    return [str(q) for q in data][:n]
+    out = []
+    for item in data:
+        if isinstance(item, dict) and item.get("question") and item.get("answer"):
+            try:
+                m = int(item.get("marks", marks or 5))
+            except (TypeError, ValueError):
+                m = marks or 5
+            out.append({"question": str(item["question"]),
+                        "answer": str(item["answer"]),
+                        "marks": m})
+    if not out:
+        raise ValueError("The model did not return usable questions. Please try again.")
+    return out[:n]
 
 
 def generate_quiz(text: str, api_key: str, n: int = 5) -> List[Dict]:
